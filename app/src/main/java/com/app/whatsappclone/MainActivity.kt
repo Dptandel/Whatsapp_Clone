@@ -1,6 +1,5 @@
 package com.app.whatsappclone
 
-import android.content.IntentSender
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -9,17 +8,24 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.lifecycleScope
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 import com.app.whatsappclone.googleSignIn.GoogleAuthUiClient
-import com.app.whatsappclone.screens.SignInScreen
+import com.app.whatsappclone.screens.ChatScreenUI
+import com.app.whatsappclone.screens.SignInScreenUI
 import com.app.whatsappclone.ui.theme.WhatsappCloneTheme
 import com.google.android.gms.auth.api.identity.Identity
 import kotlinx.coroutines.launch
@@ -42,44 +48,68 @@ class MainActivity : ComponentActivity() {
         setContent {
             WhatsappCloneTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    val launcher =
-                        rememberLauncherForActivityResult(contract = ActivityResultContracts.StartIntentSenderForResult(),
-                            onResult = { result ->
-                                if (result.resultCode == RESULT_OK)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(innerPadding)
+                    ) {
+                        val state by viewModel.state.collectAsState()
+                        val navController = rememberNavController()
+                        NavHost(navController = navController, startDestination = StartScreen) {
+                            composable<StartScreen> {
+                                LaunchedEffect(key1 = Unit) {
+                                    val userData = googleAuthUiClient.getSignedInUser()
+                                    if (userData != null) {
+                                        navController.navigate(ChatsScreen)
+                                    } else {
+                                        navController.navigate(SignInScreen)
+                                    }
+                                }
+                            }
+
+                            composable<SignInScreen> {
+                                val launcher =
+                                    rememberLauncherForActivityResult(contract = ActivityResultContracts.StartIntentSenderForResult(),
+                                        onResult = { result ->
+                                            if (result.resultCode == RESULT_OK)
+                                                lifecycleScope.launch {
+                                                    val signInResult =
+                                                        googleAuthUiClient.signInWithIntent(
+                                                            intent = result.data ?: return@launch
+                                                        )
+
+                                                    viewModel.onSignInResult(signInResult)
+                                                }
+                                        })
+
+                                LaunchedEffect(key1 = state.isSignIn) {
+                                    val userData = googleAuthUiClient.getSignedInUser()
+                                    userData?.run {
+                                        viewModel.addUserDataToFireStore(userData)
+                                        navController.navigate(ChatsScreen)
+                                    }
+                                }
+
+                                SignInScreenUI(onSignInClick = {
                                     lifecycleScope.launch {
-                                        val signInResult = googleAuthUiClient.signInWithIntent(
-                                            intent = result.data ?: return@launch
+                                        val signInIntentSender = googleAuthUiClient.signIn()
+                                        launcher.launch(
+                                            IntentSenderRequest.Builder(
+                                                signInIntentSender ?: return@launch
+                                            ).build()
                                         )
                                     }
-                            })
-                    SignInScreen(onSignInClick = {
-                        lifecycleScope.launch {
-                            val signInIntentSender = googleAuthUiClient.signIn()
-                            launcher.launch(
-                                IntentSenderRequest.Builder(
-                                    signInIntentSender?: return@launch
-                                ).build()
-                            )
+                                })
+                            }
+
+                            composable<ChatsScreen> {
+                                ChatScreenUI()
+                            }
+
                         }
-                    })
+                    }
                 }
             }
         }
-    }
-}
-
-@Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
-    Text(
-        text = "Hello $name!",
-        modifier = modifier
-    )
-}
-
-@Preview(showBackground = true)
-@Composable
-fun GreetingPreview() {
-    WhatsappCloneTheme {
-        Greeting("Android")
     }
 }
